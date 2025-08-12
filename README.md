@@ -300,7 +300,7 @@ The project includes a Node.js script to perform a bulk data import from CSV fil
 
 -----
 
-## 쿼리 Advanced API Queries
+##  Advanced API Queries
 
 Custom, complex query endpoints were created without writing additional backend code by leveraging PostgREST's features. These can be tested using the provided Postman collection.
 
@@ -327,6 +327,7 @@ Custom, complex query endpoints were created without writing additional backend 
 ## 👨‍💻 Developer Info
 
   * **Name:** Luis David
-  * **Clan:** *[Your Clan Name Here, e.g., "Dell"]*
-  * **Email:** *[Your Email Here]*
+  * **Clan:** *Van Rossum*
+  * **Email:** *Luis David Ducuara Cadavid*
+
 
