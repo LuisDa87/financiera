@@ -1,0 +1,2 @@
+invoice_id,platform_id,amount_paid,transaction_date,reference_code
+3,1,320000.00,2025-08-28T10:30:00Z,NEQREF12345
