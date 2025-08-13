@@ -3,7 +3,7 @@ import { getData, postData, patchData, deleteData } from '../../utils/getData.js
 
 const AdminClientesPage = {
     render: async () => {
-        // ESTA PARTE ES LA QUE FALTABA O ESTABA INCORRECTA
+        
         return `
             <div class="d-flex justify-content-between align-items-center mb-4">
                 <h1><i data-lucide="users" class="me-2"></i>Gestión de Clientes</h1>
@@ -65,7 +65,6 @@ const AdminClientesPage = {
         `;
     },
     after_render: async () => {
-        // ESTA PARTE YA LA TENÍAS, PERO LA INCLUIMOS PARA TENER EL ARCHIVO COMPLETO
         if (window.lucide) lucide.createIcons();
         const tableBody = document.getElementById('clientes-table-body');
         // Esta línea ahora funcionará porque el HTML del modal ya existe

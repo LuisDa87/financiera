@@ -6,16 +6,16 @@ import pg from 'pg';
 // --- Configuración para conectar a la BD en Docker ---
 const { Pool } = pg;
 const pool = new Pool({
-    user: 'financial_admin',           // De tu archivo .env
-    host: '100.92.47.88',              // La IP de tu servidor
-    database: 'financial_db',          // De tu archivo .env
-    password: 'CRUD_2025*', // De tu archivo .env
-    port: 5434,                        // El puerto que mapeaste en Docker
+    user: 'financial_admin',           
+    host: '100.92.47.88',              
+    database: 'financial_db',          
+    password: 'CRUD_2025*', 
+    port: 5434,                        
 });
 
-/**
- * Función genérica para leer un CSV e insertarlo en una tabla.
- * Esta función es reutilizable y no necesita cambios.
+/*
+  Función genérica para leer un CSV e insertarlo en una tabla.
+  Esta función es reutilizable.
  */
 async function importCSV(filePath, tableName) {
     console.log(`Iniciando importación para la tabla: ${tableName}...`);
@@ -33,7 +33,7 @@ async function importCSV(filePath, tableName) {
                         const placeholders = Object.keys(row).map((_, index) => `$${index + 1}`).join(', ');
                         const values = Object.values(row).map(value => value === '' ? null : value);
     
-                        // Usamos ON CONFLICT DO NOTHING para evitar errores si intentas importar datos duplicados (basado en claves únicas)
+                        // ON CONFLICT DO NOTHING para evitar errores si intentas importar datos duplicados basado en claves únicas
                         const query = `INSERT INTO ${tableName} (${columns}) VALUES (${placeholders}) ON CONFLICT DO NOTHING;`;
                         await client.query(query, values);
                     }
@@ -49,14 +49,13 @@ async function importCSV(filePath, tableName) {
     });
 }
 
-/**
- * Función principal que orquesta todas las importaciones en el orden correcto.
+/*
+  Función principal que orquesta todas las importaciones en el orden correcto.
  */
 async function main() {
     console.log("--- Iniciando proceso de carga de datos para Financial DB ---");
     
     try {
-        // ¡IMPORTANTE! El orden es crucial para respetar las claves foráneas.
         // 1. Tablas sin dependencias
         await importCSV('./database/customers.csv', 'customers');
         await importCSV('./database/platforms.csv', 'platforms');
