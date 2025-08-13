@@ -157,5 +157,208 @@ Custom, complex query endpoints were created without writing additional backend 
   * **Clan:** *Van Rossum*
   * **Email:** *Luis David Ducuara Cadavid*
 
+¡Excelente! Recuerdo perfectamente el init.sql y las consultas. Centralizar toda la lógica de las consultas complejas en Vistas (Views) de la base de datos es una práctica muy profesional y limpia. Simplifica enormemente las llamadas desde el frontend o Postman.
+He modificado el archivo init.sql para que incluya no solo la primera vista, sino las cuatro vistas que necesitas: las tres originales y la nueva para el ranking de deudas.
+Explicación de la Estrategia
+En lugar de construir URLs largas y complejas, crearemos una "tabla virtual" (una Vista) en PostgreSQL para cada consulta. PostgREST detectará estas vistas y creará automáticamente un endpoint de API para cada una. Así, tus llamadas desde Postman serán mucho más sencillas y la lógica estará centralizada en la base de datos.
+ * Consulta 1 → Vista customer_payment_totals
+ * Consulta 2 → Vista pending_invoices_details
+ * Consulta 3 → Vista detailed_transactions
+ * Consulta 4 (Nueva) → Vista customer_debt_ranking
+Nuevo init.sql con las 4 Vistas Incluidas
+Aquí tienes el archivo init.sql completo y actualizado. Solo necesitas reemplazar el contenido de tu archivo database/init.sql actual con este.
+-- Creación de la tabla para los clientes
+CREATE TABLE IF NOT EXISTS customers (
+    customer_id         SERIAL PRIMARY KEY,
+    full_name           VARCHAR(255) NOT NULL,
+    email               VARCHAR(255) UNIQUE NOT NULL,
+    phone_number        VARCHAR(20) UNIQUE,
+    created_at          TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at          TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Creación de la tabla para las plataformas
+CREATE TABLE IF NOT EXISTS platforms (
+    platform_id         SERIAL PRIMARY KEY,
+    name                VARCHAR(50) UNIQUE NOT NULL,
+    created_at          TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Creación de la tabla para las facturas
+CREATE TABLE IF NOT EXISTS invoices (
+    invoice_id          SERIAL PRIMARY KEY,
+    customer_id         INTEGER NOT NULL,
+    invoice_number      VARCHAR(100) UNIQUE NOT NULL,
+    amount_due          DECIMAL(10, 2) NOT NULL,
+    due_date            DATE NOT NULL,
+    status              VARCHAR(20) NOT NULL DEFAULT 'pending',
+    created_at          TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+
+    CONSTRAINT fk_invoice_customer
+        FOREIGN KEY(customer_id) 
+        REFERENCES customers(customer_id)
+        ON DELETE RESTRICT,
+
+    CONSTRAINT chk_invoice_status
+        CHECK (status IN ('pending', 'paid', 'partially_paid', 'overdue'))
+);
+
+-- Creación de la tabla para las transacciones
+CREATE TABLE IF NOT EXISTS transactions (
+    transaction_id      SERIAL PRIMARY KEY,
+    invoice_id          INTEGER NOT NULL,
+    platform_id         INTEGER NOT NULL,
+    amount_paid         DECIMAL(10, 2) NOT NULL,
+    transaction_date    TIMESTAMP WITH TIME ZONE NOT NULL,
+    reference_code      VARCHAR(255) UNIQUE,
+    created_at          TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+
+    CONSTRAINT fk_transaction_invoice
+        FOREIGN KEY(invoice_id)
+        REFERENCES invoices(invoice_id)
+        ON DELETE CASCADE,
+
+    CONSTRAINT fk_transaction_platform
+        FOREIGN KEY(platform_id)
+        REFERENCES platforms(platform_id)
+        ON DELETE RESTRICT
+);
+
+-- Función y Trigger para actualizar 'updated_at' en la tabla de clientes
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+   NEW.updated_at = NOW();
+   RETURN NEW;
+END;
+$$ language 'plpgsql';
+
+CREATE TRIGGER update_customers_updated_at
+BEFORE UPDATE ON customers
+FOR EACH ROW
+EXECUTE FUNCTION update_updated_at_column();
+
+
+-- =================================================================
+-- VISTAS PARA CONSULTAS AVANZADAS Y REPORTES
+-- PostgREST creará automáticamente un endpoint GET para cada vista.
+-- =================================================================
+
+-- VISTA 1: Total pagado por cada cliente.
+-- Endpoint: GET /customer_payment_totals
+CREATE OR REPLACE VIEW customer_payment_totals AS
+SELECT
+    c.customer_id,
+    c.full_name,
+    c.email,
+    SUM(t.amount_paid) AS total_paid
+FROM
+    customers c
+JOIN
+    invoices i ON c.customer_id = i.customer_id
+JOIN
+    transactions t ON i.invoice_id = t.invoice_id
+GROUP BY
+    c.customer_id, c.full_name, c.email
+ORDER BY
+    total_paid DESC;
+
+
+-- VISTA 2: Detalles de facturas pendientes.
+-- Endpoint: GET /pending_invoices_details
+CREATE OR REPLACE VIEW pending_invoices_details AS
+SELECT
+    i.invoice_id,
+    i.invoice_number,
+    i.amount_due,
+    i.status,
+    i.due_date,
+    c.full_name AS customer_name,
+    c.email AS customer_email
+FROM
+    invoices i
+JOIN
+    customers c ON i.customer_id = c.customer_id
+WHERE
+    i.status IN ('pending', 'partially_paid', 'overdue')
+ORDER BY
+    i.due_date ASC;
+
+
+-- VISTA 3: Transacciones detalladas con nombres de plataforma, cliente y factura.
+-- Endpoint: GET /detailed_transactions (se puede filtrar con ?platform_name=eq.Nequi)
+CREATE OR REPLACE VIEW detailed_transactions AS
+SELECT
+    t.transaction_id,
+    t.amount_paid,
+    t.transaction_date,
+    t.reference_code,
+    p.name AS platform_name,
+    i.invoice_number,
+    c.full_name AS customer_name
+FROM
+    transactions t
+JOIN
+    platforms p ON t.platform_id = p.platform_id
+JOIN
+    invoices i ON t.invoice_id = i.invoice_id
+JOIN
+    customers c ON i.customer_id = c.customer_id
+ORDER BY
+    t.transaction_date DESC;
+
+
+-- VISTA 4 (NUEVA): Ranking de clientes por deuda actual.
+-- Endpoint: GET /customer_debt_ranking
+CREATE OR REPLACE VIEW customer_debt_ranking AS
+WITH invoice_payments AS (
+    -- Primero, calculamos el total pagado para cada factura
+    SELECT
+        invoice_id,
+        SUM(amount_paid) as total_paid
+    FROM
+        transactions
+    GROUP BY
+        invoice_id
+)
+SELECT
+    c.customer_id,
+    c.full_name,
+    -- Calculamos la deuda sumando (monto_factura - total_pagado) para todas sus facturas pendientes
+    SUM(i.amount_due - COALESCE(ip.total_paid, 0)) AS total_debt
+FROM
+    customers c
+JOIN
+    invoices i ON c.customer_id = i.customer_id
+-- Usamos LEFT JOIN por si una factura pendiente aún no tiene pagos
+LEFT JOIN
+    invoice_payments ip ON i.invoice_id = ip.invoice_id
+WHERE
+    i.status <> 'paid'
+GROUP BY
+    c.customer_id, c.full_name
+-- Nos aseguramos de mostrar solo clientes con deuda real
+HAVING
+    SUM(i.amount_due - COALESCE(ip.total_paid, 0)) > 0
+ORDER BY
+    total_debt DESC;
+
+
+Próximos Pasos
+ * Reemplaza el archivo: Copia todo el contenido de arriba y pégalo en tu archivo database/init.sql en el servidor, sobrescribiendo el anterior.
+ * Reinicia la base de datos: Para que Docker cree estas nuevas vistas, debes reiniciar la base de datos desde cero. Conéctate a tu servidor, navega a /home/ingeadmin/crud-app y ejecuta:
+   # Detiene y elimina todo, incluyendo el volumen de datos
+docker compose down -v
+
+# Vuelve a levantar todo. La BD se creará con las 4 vistas.
+docker compose up -d
+
+ * Carga los datos: Vuelve a ejecutar node importer.js desde tu PC para poblar la base de datos recién creada.
+ * Prueba en Postman: Ahora puedes hacer peticiones GET a los nuevos endpoints:
+   * GET https://api-financiera.ingeniot.com.co/customer_payment_totals
+   * GET https://api-financiera.ingeniot.com.co/pending_invoices_details
+   * GET https://api-financiera.ingeniot.com.co/detailed_transactions
+   * GET https://api-financiera.ingeniot.com.co/detailed_transactions?platform_name=eq.Nequi (para filtrar)
+   * GET https://api-financiera.ingeniot.com.co/customer_debt_ranking
 
 
